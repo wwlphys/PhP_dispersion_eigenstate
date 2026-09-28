@@ -1,0 +1,205 @@
+linux=1;
+disp('randq 2025.10.26');
+fidin=fopen('parameters.input','r');
+ncpu=fscanf(fidin,'%d',1)
+delete(gcp('nocreate'))
+parpool(ncpu);
+nw=fscanf(fidin,'%d',1)
+minow=fscanf(fidin,'%g',1)
+minow=minow*2*pi;
+maxow=fscanf(fidin,'%g',1)   % Hz
+maxow=maxow*2*pi;
+fclose(fidin);
+%digits(64);
+miu0=pi*4e-7;
+epsilon0=8.85e-12;
+fw(nw)=0;
+ww(nw)=0;
+zerop=zeros(nq,300);
+nzero1=0*(1:nq);
+nzero2=0*(1:nq);
+fidout=fopen('dispersion.txt','w');
+fid2d=fopen('dispersion2d.txt','w');
+fidiq=fopen('iq_done.txt','w');
+for irand=1:nq
+    iqdone = load('../all_iq_done.txt');
+    flag_iqdone(1:nq) = 0;
+    for iii = 1:length(iqdone)
+        flag_iqdone(iqdone(iii)) = 1;
+    end
+    % 检查当前目录下是否存在path.txt文件
+    found_target_k = 0;
+    if exist('target_k.txt', 'file') == 2
+        fprintf('found target_k.txt\n');
+    
+        try
+            myiqdone = load('iq_done.txt');
+            for iii = 1:length(myiqdone)
+                flag_iqdone(myiqdone(iii)) = 1;
+            end
+            % 读取target_k.txt文件的前三个数
+            fidk = fopen('target_k.txt', 'r');
+            if fidk == -1
+                error('can not open target_k.txt');
+            end
+        
+            target_kx = fscanf(fidk,'%g',1); % 读取k
+            target_ky = fscanf(fidk,'%g',1);
+            target_kz = fscanf(fidk,'%g',1);
+            fclose(fidk);
+        
+            fprintf('target k: %g %g %g\n', target_kx,target_ky,target_kz);
+            found_target_k = 1;
+            k_distances = sqrt((qp(:,1)-target_kx).^2+(qp(:,2)-target_ky).^2+(qp(:,3)-target_kz).^2);
+            mink = 1e100;
+            for iqnear = 1:nq
+                if flag_iqdone(iqnear) == 0 && k_distances(iqnear)<mink
+                    mink = k_distances(iqnear);
+                    iq = iqnear;
+                end
+            end
+        catch ME
+            fprintf('error in reading target_k.txt: %s\n', ME.message);
+            found_target_k = 0;
+        end
+    end
+    if found_target_k ==0
+        rng("shuffle")
+        iq = max(1,min(nq,round(rand * nq)));
+        done = 0;
+        for i = 1:length(iqdone)
+            if iq == iqdone(i)
+                done = 1;
+            end
+        end
+        if done == 1
+            continue;
+        end
+    end
+    qcross=[-qp(iq,2)^2-qp(iq,3)^2,qp(iq,1)*qp(iq,2),qp(iq,1)*qp(iq,3);qp(iq,1)*qp(iq,2),-qp(iq,1)^2-qp(iq,3)^2,qp(iq,2)*qp(iq,3);qp(iq,1)*qp(iq,3),qp(iq,2)*qp(iq,3),-qp(iq,1)^2-qp(iq,2)^2];
+    DI0=reshape(DM(iq,:,:),nband,nband);
+    parfor i=1:nw
+        ow=minow+i*(maxow-minow)/nw;
+        % calculate fw
+        if ow>=0
+            w=ow^2;
+        else
+            w=-ow^2;
+        end
+        ww(i)=w;
+        DI=DI0-w*eye(nband);
+        A=1.602e-19^2/Vol*Zm*(DI\(Zm.'));
+        miuw2=miu0*w;
+        emiuw2=epsilon0*miuw2;
+        B=miuw2*A+emiuw2*eps0+qcross;
+        fw(i)=-B(1,3)*B(2,2)*B(3,1)+B(1,2)*B(2,3)*B(3,1)+B(1,3)*B(2,1)*B(3,2)-B(1,1)*B(2,3)*B(3,2)-B(1,2)*B(2,1)*B(3,3)+B(1,1)*B(2,2)*B(3,3);
+    end
+    fw=double(fw);
+    if iq==nq
+        if linux==0
+            subplot(1,2,1), plot(sqrt(ww)/2/pi,real(fw),'b*')
+        end
+        hold on
+        if linux==0
+            subplot(1,2,1), plot(sqrt(ww)/2/pi,imag(fw),'ro')
+        end
+        fidfw=fopen('fw.txt','w');
+        for i=1:nw
+            fprintf(fidfw,'%.10g  %g  %g\n',sqrt(ww(i))/2/pi,real(fw(i)),imag(fw(i)));
+        end
+        fclose(fidfw);
+    end
+    fw=real(fw);
+    %    find zero points
+    j=0;
+    for i=1:nw-2
+        if fw(i)*fw(i+1)<=0
+            nzero1(iq)=nzero1(iq)+1;
+            j=j+1;
+            %zerop(iq,j)=ww(i)-fw(i)*(ww(i+1)-ww(i))/(fw(i+1)-fw(i));
+            %在ww(i)与ww(i+1)之间更精确地搜索零点
+            Lw=ww(i);Rw=ww(i+1);
+            Lfw=fw(i);Rfw=fw(i+1);
+            for iter=1:50
+                tw=(Lw+Rw)/2;
+                DI=DI0-tw*eye(nband);
+                A=1.602e-19^2/Vol*Zm*(DI\(Zm.'));
+                miuw2=miu0*tw;
+                emiuw2=epsilon0*miuw2;
+                B=miuw2*A+emiuw2*eps0+qcross;
+                tfw=-B(1,3)*B(2,2)*B(3,1)+B(1,2)*B(2,3)*B(3,1)+B(1,3)*B(2,1)*B(3,2)-B(1,1)*B(2,3)*B(3,2)-B(1,2)*B(2,1)*B(3,3)+B(1,1)*B(2,2)*B(3,3);
+                tfw=real(tfw);
+                if Lfw*tfw<=0
+                    Rw=tw;
+                    Rfw=tfw;
+                else
+                    Lw=tw;
+                    Lfw=tfw;
+                end
+            end
+            zerop(iq,j)=Lw-Lfw*(Rw-Lw)/(Rfw-Lfw);
+        else
+            if abs(fw(i+2))>abs(fw(i+1))&&abs(fw(i))>abs(fw(i+1)) && fw(i)*fw(i+2)>0%这种情况要认真考虑
+                bb=((fw(i)-fw(i+2))*(ww(i)^2-ww(i+1)^2)-(fw(i)-fw(i+1))*(ww(i)^2-ww(i+2)^2))/2/((fw(i)-fw(i+2))*(ww(i)-ww(i+1))-(fw(i)-fw(i+1))*(ww(i)-ww(i+2)));
+                aa=(fw(i)-fw(i+1))/(ww(i)-2*bb+ww(i+1))/(ww(i)-ww(i+1));
+                cc=fw(i)-aa*(ww(i)-bb)^2;
+                if aa*cc<0
+                    nzero2(iq)=nzero2(iq)+1;
+                    if bb-sqrt(-cc/aa)>ww(i) && bb+sqrt(-cc/aa)<ww(i+2)
+                        j=j+1;
+                        zerop(iq,j)=bb;
+			if iq==4
+			    disp(i);disp(ww(i:i+2));disp(fw(i:i+2));
+			    disp(aa);disp(bb);disp(cc);
+			end
+                    end
+                else
+                    if abs(cc)<max(abs(fw(i)),abs(fw(i+2)))/1000
+                        nzero2(iq)=nzero2(iq)+1;
+                        j=j+1;
+                        zerop(iq,j)=bb;
+			if iq==4
+                            disp(i);disp(ww(i:i+2));disp(fw(i:i+2));
+                            disp(aa);disp(bb);disp(cc);
+			end
+                    end
+                end
+            end
+        end
+    end
+    n0=j;
+    % plot
+    hold on
+        diste=sqrt((qp(iq,1))^2+(qp(iq,2))^2+(qp(iq,3))^2);
+    for j=1:n0
+        if linux==0
+	    if zerop(iq,j)>=0
+                subplot(1,2,2), plot(diste,sqrt(zerop(iq,j))/2/pi,'ro');
+            else
+	        subplot(1,2,2), plot(diste,-sqrt(-zerop(iq,j))/2/pi,'ro');
+	    end
+        end
+	if zerop(iq,j)>=0
+            fprintf(fidout,'%d  %g  %.15g\n',iq,diste,sqrt(zerop(iq,j))/2/pi);
+            fprintf(fid2d,'%g  %g  %g  %g\n',qp(iq,1),qp(iq,2),qp(iq,3),sqrt(zerop(iq,j))/2/pi);
+	else
+	    fprintf(fidout,'%d  %g  %.15g\n',iq,diste,-sqrt(-zerop(iq,j))/2/pi);
+        fprintf(fid2d,'%g  %g  %g  %g\n',qp(iq,1),qp(iq,2),qp(iq,3),-sqrt(zerop(iq,j))/2/pi);
+    end
+    end
+    drawnow;
+    fprintf(fidiq,'%d\n',iq);
+end
+%nzero1
+%nzero2
+nzero=nzero1+nzero2
+hold off
+fprintf(fid2d,'-1.0  -1.0  -1,0  -1.0'); % Indicate the end of file
+fclose(fidout);
+fclose(fid2d);
+fidout=fopen('neig.txt','w');
+for iq=1:nq
+    fprintf(fidout,'%g  ',nzero(iq));
+end
+fclose(fidout);
+disp('Exit sucessfully')
