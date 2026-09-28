@@ -1,5 +1,7 @@
 clear
-path(path,'D:\Current research\calculate phonon poloriton dispersion\matlab\原版');
+path(path,'/public2/home/openclaw/public_code/finite_thickness_based_on_unitcell/eigenvector');
+path(path,'/public2/home/openclaw/public_code/finite_thickness_based_on_unitcell');
+path(path,'/public2/home/openclaw/public_code');
 firsttime=0;
 if firsttime==0
     dm_preprocess;
@@ -20,5 +22,5 @@ read_displace;
 %findrank2
 %find0
 %comp3factorwp
-LargeDet_minw_eigenvector
+LargeDet_minw_eigenvector_ps
 %exit

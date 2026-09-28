@@ -20,5 +20,5 @@ read_displace;
 %findrank2
 %find0
 %comp3factorwp
-LargeDet_minw_eigenvector
+LargeDet_minw_eigenvector_ps
 %exit
