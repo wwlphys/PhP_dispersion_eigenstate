@@ -7,7 +7,7 @@ finite-thickness geometries).
 
 This code accompanies the manuscript
 
-> *Unified Parameter-Free Theory of Phonon Polaritons Beyond Diatomic Crystals*
+> *First-Principles Atom-Resolved Theory of Phonon Polaritons in Complex Crystals*
 
 All material parameters — second-order force constants Φ, Born effective charge
 tensor **Z**, electronic dielectric tensor ε∞ — are obtained from first-principles
